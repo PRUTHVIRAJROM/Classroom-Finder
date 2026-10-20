@@ -1,6 +1,8 @@
 # Classroom finder (prototype: 3rd floor, rooms 301 to 319)
 
-A website that shows which classrooms are free right now. A camera counts the people in a room, and the website turns that number into **Free**, **Occupied**, or **No signal**.
+A website that shows which classrooms are free right now. A camera counts the people in a room, and the website turns that number into **Free**, **In use**, or **No signal**.
+
+**The rule:** a room with **7 or more people is In use** and shows how many people are inside. A room with **fewer than 7 people is Free**, because there is space to study. A dead camera shows No signal, never Free. To change the 7, see "Changing the rule" below.
 
 Only a number (how many people) is stored. Video is never saved.
 
@@ -33,7 +35,7 @@ If PowerShell says scripts are disabled, run `Set-ExecutionPolicy -Scope Current
 
 ## What you will see
 
-- **Room 301** uses your laptop webcam. Sit in front of it and the room turns Occupied. Leave, and after 2 minutes it turns Free. For a faster demo, use `python run.py --simulate --preview --free-after 10`.
+- **Room 301** uses your laptop webcam. One person is fewer than 7, so the room shows **Free** with "1 person". To show **In use** with a single webcam, lower the limit for the demo: `python run.py --simulate --preview --min-people 1`. Then sit in front of the camera and it turns In use.
 - **The other 18 rooms** have no camera yet. With `--simulate` they show made-up data, and the website marks them **Demo data**. Without `--simulate` they show **No signal**.
 - The face detector counts faces looking at the camera, so it works for a webcam on a desk.
 
@@ -55,6 +57,12 @@ The `cameras` folder has one file per classroom: `301.json` is room 301, `302.js
 - More options are explained in `cameras/README.txt`.
 - These files hold camera passwords once you add CCTV addresses, so do not upload or share the folder.
 - Restart the program (`Ctrl+C`, then run it again) after changing a file.
+
+## Changing the rule
+
+- `python run.py --min-people 10` means 10 or more people = In use. The default is 7.
+- On the live website (Render), open the service, go to **Environment**, and change `CF_MIN_PEOPLE`. Render restarts the site by itself.
+- After the count drops below the limit, the room waits 30 seconds before showing Free, so a count hovering around 7 does not flicker. Use `--free-after 0` to turn that wait off.
 
 ## Changing the rooms
 

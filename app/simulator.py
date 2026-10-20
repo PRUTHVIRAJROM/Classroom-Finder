@@ -42,8 +42,13 @@ def start_background(store, interval=5.0, seed=None, skip=()):
 
     def loop():
         while not stop.is_set():
-            tick(store, rng, state, skip)
+            try:
+                tick(store, rng, state, skip)
+            except Exception as e:     # one database hiccup must not end the demo for good
+                print(f"[demo data] skipped one update: {e!r}", flush=True)
             stop.wait(interval)
 
-    threading.Thread(target=loop, name="simulator", daemon=True).start()
+    thread = threading.Thread(target=loop, name="simulator", daemon=True)
+    thread.start()
+    stop.thread = thread               # so a caller can stop it and wait for it to finish
     return stop

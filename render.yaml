@@ -18,3 +18,5 @@ services:
         value: "1"
       - key: CF_LIVE_ROOMS         # rooms whose counts come from a real camera
         value: "301"
+      - key: CF_MIN_PEOPLE         # this many people or more = In use; fewer = Free
+        value: "7"

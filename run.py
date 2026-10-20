@@ -4,6 +4,7 @@
     python run.py --preview             also open http://localhost:8000/preview to watch the camera
     python run.py --simulate            fill rooms that have no camera with made-up demo data
     python run.py --share               let phones on the same Wi-Fi open the website
+    python run.py --min-people 1        change the rule: 1 person or more = In use (default 7)
     python run.py --make-camera-files   create a cameras/<room>.json for any room that lacks one
 
 Options can be combined, e.g.  python run.py --simulate --preview
@@ -25,8 +26,10 @@ def main():
                    help="turn on the camera preview page (this computer only)")
     p.add_argument("--share", action="store_true",
                    help="listen on the network so phones on the same Wi-Fi can open the site")
-    p.add_argument("--free-after", type=float, default=120,
-                   help="seconds a room must be empty before it shows as free (default 120)")
+    p.add_argument("--min-people", type=int, default=7,
+                   help="this many people or more = In use; fewer = Free (default 7)")
+    p.add_argument("--free-after", type=float, default=30,
+                   help="seconds below that number before a room shows as Free (default 30)")
     p.add_argument("--cameras", default=str(BASE / "cameras"),
                    help="folder with one file per room (default: the cameras folder)")
     p.add_argument("--make-camera-files", action="store_true",
@@ -34,6 +37,7 @@ def main():
     args = p.parse_args()
 
     os.environ["CF_FREE_AFTER"] = str(args.free_after)
+    os.environ["CF_MIN_PEOPLE"] = str(args.min_people)
 
     from app import simulator
     from app.cameras_config import create_missing_files, load_cameras

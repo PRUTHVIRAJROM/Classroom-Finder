@@ -44,7 +44,9 @@ Do not post this password in a chat, in GitHub, or on a slide.
 1. Open `send_camera_to_website.bat` in VS Code and change the first line to your real address: `set SITE=https://classroom-finder.onrender.com`. Save.
 2. Double-click `send_camera_to_website.bat`.
 3. Paste the password when it asks, then press Enter.
-4. Sit in front of the webcam. Within about 10 seconds, room 301 on the live website turns **Occupied**.
+4. Sit in front of the webcam. Within about 10 seconds, room 301 on the live website shows **Free** with "1 person", because one person is fewer than 7.
+
+To see **In use** with just one webcam, lower the limit: in Render, open **Environment**, set `CF_MIN_PEOPLE` to `1`, and wait for the site to restart. Set it back to `7` for the real rule.
 
 Keep that window open. Closing it stops the counts, and room 301 goes back to "No signal" after about 90 seconds. That is on purpose.
 
@@ -57,6 +59,6 @@ To turn demo data off completely, set `CF_SIMULATE` to `0` on Render.
 ## Good to know
 
 - **The free plan sleeps** after some minutes without visitors. The first visit can take about a minute to load. The camera program retries on its own.
-- **The website is public** to anyone with the link. It shows only free, occupied and no signal. Ask your teacher before sharing the link widely or using real CCTV.
+- **The website is public** to anyone with the link. It shows only free, in use and no signal, with a people count. Ask your teacher before sharing the link widely or using real CCTV.
 - **Never put camera passwords on GitHub.** Your `.gitignore` already blocks the camera files. Keep it that way.
 - **If it does not work:** open the service in Render and click **Logs** to see the error. Then tell me what it says.

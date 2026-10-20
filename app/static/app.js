@@ -2,7 +2,8 @@
   "use strict";
 
   var POLL_MS = 5000;
-  var state = { rooms: [], summary: null, simulated: {}, status: "", building: "", fetchedAt: null, failed: false };
+  var state = { rooms: [], summary: null, simulated: {}, minPeople: 7, status: "", building: "", fetchedAt: null, failed: false };
+  var STATUS_WORDS = { free: "free", occupied: "in use", unknown: "no signal" };
 
   var el = {
     count: document.getElementById("free-count"),
@@ -30,17 +31,20 @@
     return r.id.split("-").slice(1).join("-") || r.id;
   }
 
+  // Each card has up to three lines: the state, a detail line, and a "Demo data" tag.
   function plateText(r) {
-    var seats = r.capacity > 0 ? "Seats " + r.capacity : "";
-    var demo = state.simulated[r.id] ? "Demo data" : "";
+    var n = r.count || 0;
+    var people = n + (n === 1 ? " person" : " people");
+    var tag = state.simulated[r.id] ? "Demo data" : "";
     if (r.status === "free") {
-      return { state: "Free", detail: demo || (r.free_for_seconds == null ? seats : "Empty " + minutes(r.free_for_seconds)) };
+      var empty = r.free_for_seconds == null ? "Empty" : "Empty " + minutes(r.free_for_seconds);
+      return { state: "Free", detail: n > 0 ? people : empty, tag: tag };
     }
     if (r.status === "occupied") {
-      var n = r.count || 0;
-      return { state: n > 0 ? n + (n === 1 ? " person" : " people") : "In use", detail: demo || seats };
+      // below the limit but still "in use" = the short pause before it flips to free
+      return { state: "In use", detail: n >= state.minPeople ? people : "Freeing up soon", tag: tag };
     }
-    return { state: "No signal", detail: demo || seats };
+    return { state: "No signal", detail: r.capacity > 0 ? "Seats " + r.capacity : "", tag: tag };
   }
 
   function plate(r) {
@@ -55,10 +59,12 @@
     var bottom = h("div");
     bottom.appendChild(h("div", "state", t.state));
     if (t.detail) bottom.appendChild(h("div", "detail", t.detail));
+    bottom.appendChild(h("div", "tag", t.tag || " "));   // always present so cards line up
     p.appendChild(top);
     p.appendChild(bottom);
     p.setAttribute("role", "group");
-    p.setAttribute("aria-label", "Room " + num + ", floor " + r.floor + ": " + t.state + (t.detail ? ", " + t.detail : ""));
+    p.setAttribute("aria-label", "Room " + num + ", floor " + r.floor + ": " + t.state +
+      (t.detail ? ", " + t.detail : "") + (t.tag ? ", " + t.tag : ""));
     return p;
   }
 
@@ -67,11 +73,21 @@
     if (!s) return;
     el.count.textContent = s.free;
     el.heroText.textContent = s.free === 1 ? "room free right now" : "rooms free right now";
-    var bits = [s.occupied + " occupied"];
+    var bits = [s.occupied + " in use"];
     if (s.unknown) bits.push(s.unknown + " with no signal");
     var demoCount = Object.keys(state.simulated).length;
     el.meta.textContent = bits.join(", ") + ". Updated " + ago() + "." +
       (demoCount ? " Rooms marked demo use made-up data." : "");
+  }
+
+  function renderRule() {
+    var n = state.minPeople;
+    var rule = document.getElementById("rule");
+    if (!rule) return;
+    rule.textContent = n <= 1
+      ? "A room with " + n + " or more people is in use. An empty room is free."
+      : "A room with " + n + " or more people is in use. A room with fewer than " + n + " people counts as free. ";
+    rule.textContent += "A room with no camera signal shows as no signal, never as free.";
   }
 
   function ago() {
@@ -105,7 +121,7 @@
 
     if (!shown.length) {
       var msg = state.rooms.length
-        ? "No " + (state.status || "matching") + " rooms right now. Try another filter."
+        ? "No " + (state.status ? STATUS_WORDS[state.status] : "matching") + " rooms right now. Try another filter."
         : "No rooms loaded yet.";
       el.rooms.appendChild(h("p", "empty", msg));
       return;
@@ -160,6 +176,10 @@
       .then(function (data) {
         state.rooms = data.rooms;
         state.summary = data.summary;
+        if (data.min_people) {
+          state.minPeople = data.min_people;
+          renderRule();
+        }
         state.simulated = {};
         (data.simulated_rooms || []).forEach(function (id) { state.simulated[id] = true; });
         state.fetchedAt = Date.now();

@@ -4,9 +4,10 @@ Only person *counts* are ever stored. No camera frames reach the server.
 
 Status rules (computed when a room is read, not stored):
   unknown   - no report yet, or the room's agent has gone quiet (stale)
-  occupied  - people seen now, or seen within the last `free_after` seconds
-              (so a lecturer stepping out for a minute does not flip the room to free)
-  free      - reports are fresh and nobody has been seen for `free_after` seconds
+  occupied  - `min_people` or more people seen now (the website calls this "In use"),
+              or that many were seen within the last `free_after` seconds
+              (a short pause so a count hovering around the limit does not flicker)
+  free      - fewer than `min_people` people, once `free_after` seconds have passed
 """
 import json
 import sqlite3
@@ -28,16 +29,19 @@ CREATE TABLE IF NOT EXISTS rooms (
 """
 
 DEFAULT_STALE_AFTER = 90   # seconds without a report before a room is "unknown"
-DEFAULT_FREE_AFTER = 120   # seconds of emptiness before a room is "free"
+DEFAULT_FREE_AFTER = 30    # seconds below the limit before a room shows as "free"
+DEFAULT_MIN_PEOPLE = 7     # this many people or more = the room is in use
 MAX_COUNT = 1000
 
 
 class Store:
     def __init__(self, db_path, rooms_file=None,
-                 stale_after=DEFAULT_STALE_AFTER, free_after=DEFAULT_FREE_AFTER):
+                 stale_after=DEFAULT_STALE_AFTER, free_after=DEFAULT_FREE_AFTER,
+                 min_people=DEFAULT_MIN_PEOPLE):
         self.db_path = str(db_path)
         self.stale_after = stale_after
         self.free_after = free_after
+        self.min_people = max(1, int(min_people))
         self._lock = threading.Lock()
         if self.db_path != ":memory:":
             Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
@@ -109,9 +113,9 @@ class Store:
         with self._lock, self._conn() as conn:
             cur = conn.execute(
                 "UPDATE rooms SET count = ?, last_update = ?, "
-                "last_person_at = CASE WHEN ? > 0 THEN ? ELSE last_person_at END "
+                "last_person_at = CASE WHEN ? >= ? THEN ? ELSE last_person_at END "
                 "WHERE id = ?",
-                (count, now, count, now, room_id),
+                (count, now, count, self.min_people, now, room_id),
             )
             return cur.rowcount > 0
 
@@ -119,7 +123,7 @@ class Store:
     def status_for(self, row, now):
         if row["last_update"] is None or now - row["last_update"] > self.stale_after:
             return "unknown"
-        if row["count"] and row["count"] > 0:
+        if row["count"] is not None and row["count"] >= self.min_people:
             return "occupied"
         last_person = row["last_person_at"]
         if last_person is not None and now - last_person < self.free_after:

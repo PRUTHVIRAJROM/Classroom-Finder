@@ -75,13 +75,53 @@ class StoreRules(Base):
         self.assertEqual(self.store.get_room("A-101", now=1005)["status"], "occupied")
 
     def test_grace_period_then_free(self):
-        self.store.record_occupancy("A-101", 5, now=1000)
-        self.store.record_occupancy("A-101", 0, now=1010)
+        # Base uses free_after=120: after a class (7+ people) drops below 7, the room
+        # stays "in use" for 120 s, then becomes free
+        self.store.record_occupancy("A-101", 10, now=1000)
+        self.store.record_occupancy("A-101", 2, now=1010)
         self.assertEqual(self.store.get_room("A-101", now=1060)["status"], "occupied")
-        self.store.record_occupancy("A-101", 0, now=1120)
+        self.store.record_occupancy("A-101", 2, now=1120)
         room = self.store.get_room("A-101", now=1125)
         self.assertEqual(room["status"], "free")
-        self.assertEqual(room["free_for_seconds"], 125)   # last person seen at t=1000
+        self.assertEqual(room["count"], 2)
+        self.assertEqual(room["free_for_seconds"], 125)   # 7+ people last seen at t=1000
+
+    def test_fewer_than_7_people_is_free(self):
+        for n in (0, 1, 3, 6):
+            with self.subTest(people=n):
+                self.store.record_occupancy("A-101", n, now=1000)
+                room = self.store.get_room("A-101", now=1001)
+                self.assertEqual((room["status"], room["count"]), ("free", n))
+
+    def test_7_or_more_people_is_in_use(self):
+        for n in (7, 8, 40):
+            with self.subTest(people=n):
+                self.store.record_occupancy("A-101", n, now=1000)
+                room = self.store.get_room("A-101", now=1001)
+                self.assertEqual((room["status"], room["count"]), ("occupied", n))
+
+    def test_a_few_people_never_start_the_pause(self):
+        self.store.record_occupancy("A-101", 6, now=1000)
+        self.store.record_occupancy("A-101", 6, now=1005)
+        room = self.store.get_room("A-101", now=1006)
+        self.assertEqual(room["status"], "free")
+        self.assertIsNone(room["free_for_seconds"])    # never reached 7, so no "in use" period at all
+
+    def test_the_limit_can_be_changed(self):
+        s = Store(self.tmp / "m.db", rooms_file=ROOMS, free_after=0, min_people=1)
+        s.record_occupancy("A-101", 1, now=1000)
+        s.record_occupancy("A-102", 0, now=1000)
+        self.assertEqual(s.get_room("A-101", now=1001)["status"], "occupied")
+        self.assertEqual(s.get_room("A-102", now=1001)["status"], "free")
+        s2 = Store(self.tmp / "n.db", rooms_file=ROOMS, free_after=0, min_people=12)
+        s2.record_occupancy("A-101", 11, now=1000)
+        self.assertEqual(s2.get_room("A-101", now=1001)["status"], "free")
+        s2.record_occupancy("A-101", 12, now=1002)
+        self.assertEqual(s2.get_room("A-101", now=1003)["status"], "occupied")
+
+    def test_default_pause_is_short(self):
+        s = Store(self.tmp / "d.db", rooms_file=ROOMS)
+        self.assertEqual((s.min_people, s.free_after), (7, 30))
 
     def test_never_seen_anyone_is_free_right_away(self):
         self.store.record_occupancy("A-102", 0, now=1000)
@@ -94,10 +134,11 @@ class StoreRules(Base):
         self.assertEqual(self.store.get_room("A-101", now=1091)["status"], "unknown")
 
     def test_summary_counts(self):
-        self.store.record_occupancy("A-101", 3, now=1000)
-        self.store.record_occupancy("A-102", 0, now=1000)
+        self.store.record_occupancy("A-101", 9, now=1000)
+        self.store.record_occupancy("A-102", 3, now=1000)       # fewer than 7: free
+        self.store.record_occupancy("A-103", 0, now=1000)
         s = self.store.summary(now=1001)
-        self.assertEqual((s["occupied"], s["free"], s["unknown"], s["total"]), (1, 1, 13, 15))
+        self.assertEqual((s["occupied"], s["free"], s["unknown"], s["total"]), (1, 2, 12, 15))
 
     def test_reseed_keeps_live_data(self):
         self.store.record_occupancy("A-101", 4)
@@ -171,6 +212,25 @@ class Api(Base):
         self.assertIn(b"<html", home.data.lower())
         for name in ("app.js", "style.css"):
             self.assertEqual(self.client.get(f"/static/{name}").status_code, 200)
+
+    def test_api_reports_the_limit_and_applies_it(self):
+        self.assertEqual(self.client.get("/api/rooms").get_json()["min_people"], 7)
+        self.post("A-101", 6)
+        self.post("A-102", 7)
+        by = {r["id"]: r for r in self.client.get("/api/rooms").get_json()["rooms"]}
+        self.assertEqual((by["A-101"]["status"], by["A-101"]["count"]), ("free", 6))
+        self.assertEqual((by["A-102"]["status"], by["A-102"]["count"]), ("occupied", 7))
+
+    def test_limit_from_environment(self):
+        with mock.patch.dict("os.environ", {"CF_MIN_PEOPLE": "3"}):
+            app = create_app(db_path=self.tmp / "e.db", rooms_file=ROOMS, api_key=KEY)
+        self.assertEqual(app.test_client().get("/api/rooms").get_json()["min_people"], 3)
+
+    def test_bad_limit_in_environment_falls_back_to_7(self):
+        with mock.patch.dict("os.environ", {"CF_MIN_PEOPLE": "seven", "CF_FREE_AFTER": "soon"}):
+            app = create_app(db_path=self.tmp / "f.db", rooms_file=ROOMS, api_key=KEY)
+        data = app.test_client().get("/api/rooms").get_json()
+        self.assertEqual(data["min_people"], 7)
 
     def test_simulated_rooms_are_reported(self):
         app = create_app(api_key=KEY, store=self.store, simulated_rooms=["A-102", "A-101"])
@@ -327,15 +387,15 @@ class Worker(Base):
     def test_background_thread_keeps_reporting_into_the_store(self):
         video = make_video(self.tmp / "long.avi", frames=400)
         w = camera_agent.CameraWorker(
-            "A-101", str(video), StubDetector([5]),
+            "A-101", str(video), StubDetector([9]),
             lambda n: self.store.record_occupancy("A-101", n), interval=0.05)
         w.start()
         deadline = time.time() + 5
-        while time.time() < deadline and self.store.get_room("A-101")["count"] != 5:
+        while time.time() < deadline and self.store.get_room("A-101")["count"] != 9:
             time.sleep(0.05)
         w.stop()
         room = self.store.get_room("A-101")
-        self.assertEqual((room["count"], room["status"]), (5, "occupied"))
+        self.assertEqual((room["count"], room["status"]), (9, "occupied"))
 
     def test_stand_alone_agent_reports_over_http(self):
         from werkzeug.serving import make_server
@@ -343,12 +403,12 @@ class Worker(Base):
         server = make_server("127.0.0.1", 0, create_app(api_key=KEY, store=self.store))
         threading.Thread(target=server.serve_forever, daemon=True).start()
         self.addCleanup(server.shutdown)
-        with mock.patch.object(camera_agent, "make_detector", lambda kind: StubDetector([4])):
+        with mock.patch.object(camera_agent, "make_detector", lambda kind: StubDetector([8])):
             camera_agent.main(["--room", "A-101", "--source", str(video), "--detector", "face",
                                "--server", f"http://127.0.0.1:{server.server_port}",
                                "--api-key", KEY, "--once"])
         room = self.store.get_room("A-101")
-        self.assertEqual((room["count"], room["status"]), (4, "occupied"))
+        self.assertEqual((room["count"], room["status"]), (8, "occupied"))
 
 
 # ---- detectors (need OpenCV 4.x; skipped where the build lacks them) -------
@@ -403,7 +463,11 @@ class Simulator(Base):
 class HostedMode(Base):
     def make(self, **env):
         with mock.patch.dict("os.environ", env, clear=False):
-            return create_app(api_key=KEY, store=self.store)
+            app = create_app(api_key=KEY, store=self.store)
+        stop = app.extensions.get("simulator_stop")
+        if stop is not None:       # stop the demo thread before the temp folder is deleted
+            self.addCleanup(lambda: (stop.set(), stop.thread.join(5)))
+        return app
 
     def test_off_by_default(self):
         app = self.make()

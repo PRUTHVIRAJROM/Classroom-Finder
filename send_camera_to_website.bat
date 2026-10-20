@@ -2,7 +2,7 @@
 rem Double-click this file to send a room's people count to your live website.
 rem Edit the 4 lines below once. The password is asked each time, so it is never saved in this file.
 
-set SITE=https://YOUR-SITE-NAME.onrender.com
+set SITE=https://classroom-finder-6w04.onrender.com
 set ROOM=301
 set SOURCE=0
 set DETECTOR=face

@@ -25,7 +25,7 @@
     <div class="seg" role="group" aria-label="Show rooms that are">
       <button type="button" data-status="" aria-pressed="true">All</button>
       <button type="button" data-status="free" aria-pressed="false">Free</button>
-      <button type="button" data-status="occupied" aria-pressed="false">Occupied</button>
+      <button type="button" data-status="occupied" aria-pressed="false">In use</button>
     </div>
     <label class="select">
       <span>Building</span>
@@ -36,7 +36,7 @@
   <main id="rooms"></main>
 
   <footer class="foot">
-    <p>A room stays marked occupied for a short while after the last person leaves, so a quick break does not show it as free. A room with no camera signal shows as no signal, never as free.</p>
+    <p id="rule">A room with 7 or more people is in use. A room with fewer than 7 people counts as free. A room with no camera signal shows as no signal, never as free.</p>
   </footer>
 
   <script src="/static/app.js"></script>

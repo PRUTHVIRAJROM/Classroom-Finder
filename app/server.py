@@ -7,7 +7,15 @@ from pathlib import Path
 from flask import Flask, Response, jsonify, request, send_from_directory
 from markupsafe import escape
 
-from .store import DEFAULT_FREE_AFTER, MAX_COUNT, Store
+from .store import DEFAULT_FREE_AFTER, DEFAULT_MIN_PEOPLE, MAX_COUNT, Store
+
+
+def _number_from_env(name, default, kind=float):
+    """Read a number from an environment variable; fall back to the default if it is not a number."""
+    try:
+        return kind(os.environ.get(name, default))
+    except ValueError:
+        return default
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -23,11 +31,13 @@ def create_app(db_path=None, rooms_file=None, api_key=None, store=None,
     db_path = db_path or os.environ.get("CF_DB", BASE_DIR / "data" / "classroom.db")
     rooms_file = rooms_file or os.environ.get("CF_ROOMS", BASE_DIR / "rooms.json")
     api_key = api_key or os.environ.get("CF_API_KEY", "")
-    free_after = float(os.environ.get("CF_FREE_AFTER", DEFAULT_FREE_AFTER))
+    free_after = _number_from_env("CF_FREE_AFTER", DEFAULT_FREE_AFTER)
+    min_people = _number_from_env("CF_MIN_PEOPLE", DEFAULT_MIN_PEOPLE, int)
     app.config["API_KEY"] = api_key
     app.config["SIMULATED_ROOMS"] = sorted(simulated_rooms)
     app.config["PREVIEW_ROOMS"] = []
-    app.extensions["store"] = store or Store(db_path, rooms_file=rooms_file, free_after=free_after)
+    app.extensions["store"] = store or Store(db_path, rooms_file=rooms_file,
+                                             free_after=free_after, min_people=min_people)
     app.extensions["hub"] = hub
     db = app.extensions["store"]
 
@@ -38,7 +48,7 @@ def create_app(db_path=None, rooms_file=None, api_key=None, store=None,
         from . import simulator
         live = {r.strip() for r in os.environ.get("CF_LIVE_ROOMS", "").split(",") if r.strip()}
         app.config["SIMULATED_ROOMS"] = sorted(r["id"] for r in db.list_rooms() if r["id"] not in live)
-        simulator.start_background(db, skip=live)
+        app.extensions["simulator_stop"] = simulator.start_background(db, skip=live)
 
     # ---- website ---------------------------------------------------------
     @app.get("/")
@@ -71,7 +81,8 @@ def create_app(db_path=None, rooms_file=None, api_key=None, store=None,
                 return jsonify(error="floor must be an integer"), 400
         data = db.list_rooms(building=request.args.get("building"), floor=floor, status=status)
         return jsonify(rooms=data, summary=db.summary(),
-                       simulated_rooms=app.config["SIMULATED_ROOMS"])
+                       simulated_rooms=app.config["SIMULATED_ROOMS"],
+                       min_people=db.min_people)
 
     @app.get("/api/rooms/<room_id>")
     def room(room_id):
