@@ -1,0 +1,17 @@
+[
+  {"id": "A-101", "name": "Room 101", "building": "Building A", "floor": 1, "capacity": 60},
+  {"id": "A-102", "name": "Room 102", "building": "Building A", "floor": 1, "capacity": 60},
+  {"id": "A-103", "name": "Room 103", "building": "Building A", "floor": 1, "capacity": 40},
+  {"id": "A-201", "name": "Room 201", "building": "Building A", "floor": 2, "capacity": 60},
+  {"id": "A-202", "name": "Room 202", "building": "Building A", "floor": 2, "capacity": 60},
+  {"id": "A-203", "name": "Room 203", "building": "Building A", "floor": 2, "capacity": 40},
+  {"id": "A-301", "name": "Room 301", "building": "Building A", "floor": 3, "capacity": 60},
+  {"id": "A-302", "name": "Room 302", "building": "Building A", "floor": 3, "capacity": 60},
+  {"id": "A-303", "name": "Room 303", "building": "Building A", "floor": 3, "capacity": 40},
+  {"id": "B-101", "name": "Room 101", "building": "Building B", "floor": 1, "capacity": 80},
+  {"id": "B-102", "name": "Room 102", "building": "Building B", "floor": 1, "capacity": 80},
+  {"id": "B-201", "name": "Room 201", "building": "Building B", "floor": 2, "capacity": 80},
+  {"id": "B-202", "name": "Room 202", "building": "Building B", "floor": 2, "capacity": 50},
+  {"id": "B-301", "name": "Lab 301", "building": "Building B", "floor": 3, "capacity": 30},
+  {"id": "B-302", "name": "Lab 302", "building": "Building B", "floor": 3, "capacity": 30}
+]
