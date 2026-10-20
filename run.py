@@ -25,15 +25,15 @@ def main():
                    help="turn on the camera preview page (this computer only)")
     p.add_argument("--share", action="store_true",
                    help="listen on the network so phones on the same Wi-Fi can open the site")
-    p.add_argument("--occupied-above", type=int, default=7,
-                   help="a room is occupied only when MORE than this many students are counted (default 7)")
+    p.add_argument("--free-after", type=float, default=120,
+                   help="seconds a room must be empty before it shows as free (default 120)")
     p.add_argument("--cameras", default=str(BASE / "cameras"),
                    help="folder with one file per room (default: the cameras folder)")
     p.add_argument("--make-camera-files", action="store_true",
                    help="create an empty camera file for every room that does not have one, then exit")
     args = p.parse_args()
 
-    os.environ["CF_OCCUPIED_ABOVE"] = str(args.occupied_above)
+    os.environ["CF_FREE_AFTER"] = str(args.free_after)
 
     from app import simulator
     from app.cameras_config import create_missing_files, load_cameras
@@ -70,13 +70,13 @@ def main():
             sys.exit("OpenCV is not installed. Run:  pip install -r requirements.txt")
         for c in cameras:
             try:
-                detector = camera_agent.make_detector(c["detector"], **c["options"])
+                detector = camera_agent.make_detector(c["detector"])
             except RuntimeError as e:
                 sys.exit(str(e))
             worker = camera_agent.CameraWorker(
                 c["room"], c["source"], detector,
                 report=lambda n, rid=c["room"]: store.record_occupancy(rid, n),
-                interval=c["interval"], max_width=c["max_width"], hub=hub, hold=c["hold"])
+                interval=c["interval"], max_width=c["max_width"], hub=hub)
             worker.start()
             workers.append(worker)
             print(f'Camera on: room {c["room"]}, source {c["source"]!r}, {c["detector"]} detector')

@@ -1,0 +1,11 @@
+# Python and local junk
+.venv/
+__pycache__/
+data/
+
+# Camera files can hold CCTV passwords: keep them off GitHub (the webcam example is allowed)
+cameras/*.json
+!cameras/301.json
+
+# Leftover folder from extracting zips
+classroom-finder-update/

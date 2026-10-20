@@ -1,5 +1,0 @@
-flask>=3.0
-requests>=2.31
-# Camera counting (4.x is required; OpenCV 5 removed the detectors used here):
-opencv-python>=4.9,<5
-numpy>=1.26

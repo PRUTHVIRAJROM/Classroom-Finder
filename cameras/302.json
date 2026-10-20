@@ -1,4 +1,4 @@
-   {
-     "source": "C:/Users/Asus/Downloads/istockphoto-2199660692-640_adpp_is.mp4",
-     "detector": "yolo"
-   }
+{
+  "source": "",
+  "detector": "person"
+}

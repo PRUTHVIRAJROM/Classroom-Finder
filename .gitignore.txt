@@ -1,5 +1,0 @@
-   .venv/
-   data/
-   __pycache__/
-   cameras/*.json
-   !cameras/301.json

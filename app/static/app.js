@@ -33,14 +33,12 @@
   function plateText(r) {
     var seats = r.capacity > 0 ? "Seats " + r.capacity : "";
     var demo = state.simulated[r.id] ? "Demo data" : "";
-    var n = r.count || 0;
-    var students = n + (n === 1 ? " student" : " students");
     if (r.status === "free") {
-      // 0 students: plain "Free". A few students (7 or fewer): still free, but show how many.
-      return { state: "Free", detail: demo || (n > 0 ? students + " spotted" : seats) };
+      return { state: "Free", detail: demo || (r.free_for_seconds == null ? seats : "Empty " + minutes(r.free_for_seconds)) };
     }
     if (r.status === "occupied") {
-      return { state: "Occupied", detail: demo || students + " spotted" };
+      var n = r.count || 0;
+      return { state: n > 0 ? n + (n === 1 ? " person" : " people") : "In use", detail: demo || seats };
     }
     return { state: "No signal", detail: demo || seats };
   }

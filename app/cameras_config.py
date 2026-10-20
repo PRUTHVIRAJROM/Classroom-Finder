@@ -6,12 +6,7 @@ and so on. The room is taken from the file name.
 import json
 from pathlib import Path
 
-DETECTORS = ("yolo", "face", "person", "motion")
-# extra settings each detector understands, passed through from the camera file
-DETECTOR_OPTIONS = {
-    "yolo": ("model", "confidence", "tile", "nms"),
-    "motion": ("min_area", "max_area", "sensitivity", "warmup", "learning_rate", "max_change"),
-}
+DETECTORS = ("face", "person")
 
 PLACEHOLDER = '{\n  "source": "",\n  "detector": "person"\n}\n'
 
@@ -55,19 +50,14 @@ def load_cameras(folder):
             continue                                   # no address for this room yet
         detector = data.get("detector", "person")
         if detector not in DETECTORS:
-            raise ValueError(f'{f.name}: detector must be "yolo", "face", "person" or "motion"')
-        motion = detector == "motion"
-        wide = detector in ("yolo", "motion")
+            raise ValueError(f'{f.name}: detector must be "face" or "person"')
         try:
             cameras.append({
                 "room": room,
                 "source": normalize_source(source),
                 "detector": detector,
                 "interval": float(data.get("interval", 2)),
-                # far-away people are tiny, so yolo and motion keep a sharper picture
-                "max_width": int(data.get("max_width", 1280 if wide else 640)),
-                "hold": float(data.get("hold", 30 if motion else 0)),
-                "options": {k: data[k] for k in DETECTOR_OPTIONS.get(detector, ()) if k in data},
+                "max_width": int(data.get("max_width", 640)),
             })
         except (TypeError, ValueError) as e:
             raise ValueError(f"{f.name}: {e}")

@@ -4,9 +4,9 @@ Only person *counts* are ever stored. No camera frames reach the server.
 
 Status rules (computed when a room is read, not stored):
   unknown   - no report yet, or the room's agent has gone quiet (stale)
-  occupied  - more than `occupied_above` students counted right now (default: more than 7)
-  free      - reports are fresh and `occupied_above` students or fewer are counted,
-              including 0. The count is still shown, so "3 students spotted" is free.
+  occupied  - people seen now, or seen within the last `free_after` seconds
+              (so a lecturer stepping out for a minute does not flip the room to free)
+  free      - reports are fresh and nobody has been seen for `free_after` seconds
 """
 import json
 import sqlite3
@@ -28,16 +28,16 @@ CREATE TABLE IF NOT EXISTS rooms (
 """
 
 DEFAULT_STALE_AFTER = 90   # seconds without a report before a room is "unknown"
-DEFAULT_OCCUPIED_ABOVE = 7   # more students than this and the room is "occupied"
+DEFAULT_FREE_AFTER = 120   # seconds of emptiness before a room is "free"
 MAX_COUNT = 1000
 
 
 class Store:
     def __init__(self, db_path, rooms_file=None,
-                 stale_after=DEFAULT_STALE_AFTER, occupied_above=DEFAULT_OCCUPIED_ABOVE):
+                 stale_after=DEFAULT_STALE_AFTER, free_after=DEFAULT_FREE_AFTER):
         self.db_path = str(db_path)
         self.stale_after = stale_after
-        self.occupied_above = occupied_above
+        self.free_after = free_after
         self._lock = threading.Lock()
         if self.db_path != ":memory:":
             Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
@@ -119,7 +119,10 @@ class Store:
     def status_for(self, row, now):
         if row["last_update"] is None or now - row["last_update"] > self.stale_after:
             return "unknown"
-        if row["count"] is not None and row["count"] > self.occupied_above:
+        if row["count"] and row["count"] > 0:
+            return "occupied"
+        last_person = row["last_person_at"]
+        if last_person is not None and now - last_person < self.free_after:
             return "occupied"
         return "free"
 
