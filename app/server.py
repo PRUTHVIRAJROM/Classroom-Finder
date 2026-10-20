@@ -7,7 +7,7 @@ from pathlib import Path
 from flask import Flask, Response, jsonify, request, send_from_directory
 from markupsafe import escape
 
-from .store import DEFAULT_OCCUPIED_ABOVE, MAX_COUNT, Store
+from .store import DEFAULT_FREE_AFTER, MAX_COUNT, Store
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -23,13 +23,22 @@ def create_app(db_path=None, rooms_file=None, api_key=None, store=None,
     db_path = db_path or os.environ.get("CF_DB", BASE_DIR / "data" / "classroom.db")
     rooms_file = rooms_file or os.environ.get("CF_ROOMS", BASE_DIR / "rooms.json")
     api_key = api_key or os.environ.get("CF_API_KEY", "")
-    occupied_above = int(os.environ.get("CF_OCCUPIED_ABOVE", DEFAULT_OCCUPIED_ABOVE))
+    free_after = float(os.environ.get("CF_FREE_AFTER", DEFAULT_FREE_AFTER))
     app.config["API_KEY"] = api_key
     app.config["SIMULATED_ROOMS"] = sorted(simulated_rooms)
     app.config["PREVIEW_ROOMS"] = []
-    app.extensions["store"] = store or Store(db_path, rooms_file=rooms_file, occupied_above=occupied_above)
+    app.extensions["store"] = store or Store(db_path, rooms_file=rooms_file, free_after=free_after)
     app.extensions["hub"] = hub
     db = app.extensions["store"]
+
+    # Hosted demo mode, set on the hosting site instead of typing --simulate:
+    #   CF_SIMULATE=1          fill rooms with made-up data (the website labels them "Demo data")
+    #   CF_LIVE_ROOMS=301,302  rooms with a real camera sending counts; these are not faked
+    if os.environ.get("CF_SIMULATE", "").strip().lower() in ("1", "true", "yes"):
+        from . import simulator
+        live = {r.strip() for r in os.environ.get("CF_LIVE_ROOMS", "").split(",") if r.strip()}
+        app.config["SIMULATED_ROOMS"] = sorted(r["id"] for r in db.list_rooms() if r["id"] not in live)
+        simulator.start_background(db, skip=live)
 
     # ---- website ---------------------------------------------------------
     @app.get("/")

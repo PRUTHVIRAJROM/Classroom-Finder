@@ -1,0 +1,3 @@
+# Used by the hosting site (Render). No OpenCV needed there: the website only shows counts.
+flask>=3.0
+gunicorn>=22.0

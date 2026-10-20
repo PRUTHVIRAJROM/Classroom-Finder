@@ -1,4 +1,5 @@
 import json
+import os
 import random
 import sys
 import tempfile
@@ -47,10 +48,16 @@ def make_video(path, frames=40):
 
 class Base(unittest.TestCase):
     def setUp(self):
+        # tests must not depend on settings that happen to be set on this computer
+        env = mock.patch.dict("os.environ")
+        env.start()
+        self.addCleanup(env.stop)
+        for name in [k for k in os.environ if k.startswith("CF_")]:
+            del os.environ[name]
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
         self.tmp = Path(self._tmp.name)
-        self.store = Store(self.tmp / "t.db", rooms_file=ROOMS, stale_after=90, occupied_above=7)
+        self.store = Store(self.tmp / "t.db", rooms_file=ROOMS, stale_after=90, free_after=120)
         self.client = create_app(api_key=KEY, store=self.store).test_client()
 
     def post(self, room, count, key=KEY):
@@ -63,26 +70,18 @@ class StoreRules(Base):
     def test_new_room_is_unknown(self):
         self.assertEqual(self.store.get_room("A-101")["status"], "unknown")
 
-    def test_more_than_seven_students_means_occupied(self):
-        self.store.record_occupancy("A-101", 8, now=1000)
+    def test_people_means_occupied(self):
+        self.store.record_occupancy("A-101", 12, now=1000)
         self.assertEqual(self.store.get_room("A-101", now=1005)["status"], "occupied")
 
-    def test_seven_or_fewer_students_is_still_free(self):
-        for n in (1, 3, 7):
-            self.store.record_occupancy("A-101", n, now=1000)
-            room = self.store.get_room("A-101", now=1005)
-            self.assertEqual(room["status"], "free")
-            self.assertEqual(room["count"], n)           # the number is still reported
-
-    def test_room_is_free_immediately_when_nobody_is_counted(self):
-        self.store.record_occupancy("A-101", 12, now=1000)
+    def test_grace_period_then_free(self):
+        self.store.record_occupancy("A-101", 5, now=1000)
         self.store.record_occupancy("A-101", 0, now=1010)
-        self.assertEqual(self.store.get_room("A-101", now=1011)["status"], "free")
-
-    def test_threshold_can_be_changed(self):
-        s = Store(self.tmp / "t2.db", rooms_file=ROOMS, occupied_above=1)
-        s.record_occupancy("A-101", 2, now=1000)
-        self.assertEqual(s.get_room("A-101", now=1001)["status"], "occupied")
+        self.assertEqual(self.store.get_room("A-101", now=1060)["status"], "occupied")
+        self.store.record_occupancy("A-101", 0, now=1120)
+        room = self.store.get_room("A-101", now=1125)
+        self.assertEqual(room["status"], "free")
+        self.assertEqual(room["free_for_seconds"], 125)   # last person seen at t=1000
 
     def test_never_seen_anyone_is_free_right_away(self):
         self.store.record_occupancy("A-102", 0, now=1000)
@@ -95,7 +94,7 @@ class StoreRules(Base):
         self.assertEqual(self.store.get_room("A-101", now=1091)["status"], "unknown")
 
     def test_summary_counts(self):
-        self.store.record_occupancy("A-101", 9, now=1000)
+        self.store.record_occupancy("A-101", 3, now=1000)
         self.store.record_occupancy("A-102", 0, now=1000)
         s = self.store.summary(now=1001)
         self.assertEqual((s["occupied"], s["free"], s["unknown"], s["total"]), (1, 1, 13, 15))
@@ -161,9 +160,9 @@ class Api(Base):
         self.assertEqual(self.post("NOPE", 1).status_code, 404)
 
     def test_post_then_read_back(self):
-        r = self.post("A-103", 8)
+        r = self.post("A-103", 7)
         self.assertEqual(r.status_code, 200)
-        self.assertEqual(r.get_json()["count"], 8)
+        self.assertEqual(r.get_json()["count"], 7)
         self.assertEqual(self.client.get("/api/rooms/A-103").get_json()["status"], "occupied")
 
     def test_website_files_served(self):
@@ -328,15 +327,15 @@ class Worker(Base):
     def test_background_thread_keeps_reporting_into_the_store(self):
         video = make_video(self.tmp / "long.avi", frames=400)
         w = camera_agent.CameraWorker(
-            "A-101", str(video), StubDetector([9]),
+            "A-101", str(video), StubDetector([5]),
             lambda n: self.store.record_occupancy("A-101", n), interval=0.05)
         w.start()
         deadline = time.time() + 5
-        while time.time() < deadline and self.store.get_room("A-101")["count"] != 9:
+        while time.time() < deadline and self.store.get_room("A-101")["count"] != 5:
             time.sleep(0.05)
         w.stop()
         room = self.store.get_room("A-101")
-        self.assertEqual((room["count"], room["status"]), (9, "occupied"))
+        self.assertEqual((room["count"], room["status"]), (5, "occupied"))
 
     def test_stand_alone_agent_reports_over_http(self):
         from werkzeug.serving import make_server
@@ -344,12 +343,12 @@ class Worker(Base):
         server = make_server("127.0.0.1", 0, create_app(api_key=KEY, store=self.store))
         threading.Thread(target=server.serve_forever, daemon=True).start()
         self.addCleanup(server.shutdown)
-        with mock.patch.object(camera_agent, "make_detector", lambda kind: StubDetector([8])):
+        with mock.patch.object(camera_agent, "make_detector", lambda kind: StubDetector([4])):
             camera_agent.main(["--room", "A-101", "--source", str(video), "--detector", "face",
                                "--server", f"http://127.0.0.1:{server.server_port}",
                                "--api-key", KEY, "--once"])
         room = self.store.get_room("A-101")
-        self.assertEqual((room["count"], room["status"]), (8, "occupied"))
+        self.assertEqual((room["count"], room["status"]), (4, "occupied"))
 
 
 # ---- detectors (need OpenCV 4.x; skipped where the build lacks them) -------
@@ -400,153 +399,33 @@ class Simulator(Base):
         self.assertIsNotNone(s.get_room("301")["count"])
 
 
+# ---- hosted demo switch (environment variables, as set on the hosting site) --
+class HostedMode(Base):
+    def make(self, **env):
+        with mock.patch.dict("os.environ", env, clear=False):
+            return create_app(api_key=KEY, store=self.store)
+
+    def test_off_by_default(self):
+        app = self.make()
+        self.assertEqual(app.config["SIMULATED_ROOMS"], [])
+
+    def test_demo_switch_marks_every_room_except_live_ones(self):
+        app = self.make(CF_SIMULATE="1", CF_LIVE_ROOMS="A-101, B-301")
+        fake = app.config["SIMULATED_ROOMS"]
+        self.assertEqual(len(fake), 13)
+        self.assertNotIn("A-101", fake)
+        self.assertNotIn("B-301", fake)
+
+    def test_demo_switch_zero_means_off(self):
+        self.assertEqual(self.make(CF_SIMULATE="0").config["SIMULATED_ROOMS"], [])
+
+    def test_live_room_is_never_overwritten_by_the_demo(self):
+        self.make(CF_SIMULATE="1", CF_LIVE_ROOMS="A-101")
+        self.post("A-101", 6)
+        for _ in range(3):
+            simulator.tick(self.store, random.Random(5), {}, skip={"A-101"})
+        self.assertEqual(self.store.get_room("A-101")["count"], 6)
+
+
 if __name__ == "__main__":
     unittest.main()
-
-
-# ---- motion detector (far-away CCTV) -----------------------------------------
-def _cctv_scene(rng, t, n, w=1280, h=720):
-    """A noisy fixed room with n small walking 'students' (14x34 pixels)."""
-    f = np.full((h, w, 3), 110, np.uint8)
-    for x in range(0, w, 80):
-        cv2.line(f, (x, 0), (x, h), (90, 90, 90), 3)
-    f = np.clip(f.astype(np.int16) + rng.normal(0, 3, f.shape).astype(np.int16), 0, 255).astype(np.uint8)
-    for k in range(n):
-        x, y = int(100 + 70 * k + 4 * t) % (w - 20), 200 + 55 * (k % 5)
-        cv2.rectangle(f, (x, y), (x + 14, y + 34), (40, 60, 160), -1)
-    return f
-
-
-class Motion(unittest.TestCase):
-    def counts(self, n, frames=70):
-        rng = np.random.default_rng(1)
-        d = camera_agent.MotionDetector()
-        out = [len(d.detect(_cctv_scene(rng, t, 0 if t < 30 else n))) for t in range(frames)]
-        return d, out[40:]
-
-    def test_counts_small_moving_people(self):
-        for n in (3, 8):
-            with self.subTest(students=n):
-                _, c = self.counts(n)
-                self.assertEqual(int(np.median(c)), n)
-
-    def test_empty_room_counts_zero(self):
-        _, c = self.counts(0)
-        self.assertEqual(max(c), 0)
-
-    def test_not_ready_while_learning_the_room(self):
-        rng = np.random.default_rng(1)
-        d = camera_agent.MotionDetector(warmup=10)
-        for t in range(9):
-            self.assertEqual(d.detect(_cctv_scene(rng, t, 5)), [])
-            self.assertFalse(d.ready)
-        d.detect(_cctv_scene(rng, 9, 5))
-        self.assertTrue(d.ready)
-
-    def test_sudden_change_of_the_whole_picture_relearns_instead_of_counting(self):
-        rng = np.random.default_rng(1)
-        d = camera_agent.MotionDetector()
-        for t in range(40):
-            d.detect(_cctv_scene(rng, t, 0))
-        bright = np.clip(_cctv_scene(rng, 0, 0).astype(int) + 70, 0, 255).astype(np.uint8)
-        self.assertEqual(d.detect(bright), [])
-        self.assertFalse(d.ready)
-
-    def test_worker_reports_nothing_until_ready_then_holds_the_peak(self):
-        rng = np.random.default_rng(1)
-        frames = iter(_cctv_scene(rng, t, 0 if t < 30 else 4) for t in range(200))
-        reports = []
-        w = camera_agent.CameraWorker("301", 0, camera_agent.MotionDetector(), reports.append,
-                                      interval=0, hold=30)
-        w._ensure_open = lambda: object()
-        with mock.patch.object(camera_agent, "read_latest", lambda cap, flush=4: next(frames)):
-            for _ in range(24):                        # warm-up is 25 frames
-                w.step(detect=True)
-            self.assertEqual(reports, [])              # still learning: "no signal", never "free"
-            for _ in range(26):
-                w.step(detect=True)
-        self.assertTrue(reports)
-        self.assertEqual(max(reports), 4)              # students start walking at frame 30
-
-    def test_make_detector_and_config(self):
-        self.assertEqual(camera_agent.make_detector("motion", min_area=200).min_area, 200)
-        d = tempfile.TemporaryDirectory()
-        self.addCleanup(d.cleanup)
-        (Path(d.name) / "302.json").write_text(json.dumps(
-            {"source": "rtsp://x", "detector": "motion", "min_area": 150}))
-        cam = load_cameras(d.name)[0]
-        self.assertEqual((cam["max_width"], cam["hold"], cam["options"]),
-                         (1280, 30.0, {"min_area": 150}))
-
-
-# ---- YOLO people detector (model replaced by a stand-in, so no download needed) ---
-class FakeNet:
-    """Pretends to be a YOLO network: returns the prepared detections for every piece."""
-    def __init__(self, dets):
-        self.out = np.zeros((1, 84, 8400), np.float32)
-        for k, (cx, cy, w, h, cls, score) in enumerate(dets):
-            self.out[0, :4, k] = (cx, cy, w, h)
-            self.out[0, 4 + cls, k] = score
-
-    def setInput(self, blob):
-        pass
-
-    def forward(self):
-        return self.out
-
-
-class Yolo(unittest.TestCase):
-    def detector(self, dets, **kw):
-        with mock.patch.object(cv2.dnn, "readNetFromONNX", lambda path: FakeNet(dets)), \
-             mock.patch.object(camera_agent.YoloDetector, "_find_model", staticmethod(lambda m: m)):
-            return camera_agent.YoloDetector("fake.onnx", **kw)
-
-    def test_counts_only_people_above_the_confidence(self):
-        d = self.detector([
-            (100, 200, 40, 120, 0, 0.90),     # person
-            (300, 200, 40, 120, 0, 0.80),     # person
-            (500, 200, 40, 120, 0, 0.10),     # too unsure
-            (200, 100, 90, 60, 1, 0.95),      # class 1 is a bicycle: not a person
-        ])
-        boxes = d.detect(np.zeros((360, 640, 3), np.uint8))
-        self.assertEqual(len(boxes), 2)
-        self.assertEqual(sorted(b[0] for b in boxes), [80, 280])        # x = cx - w/2
-
-    def test_overlapping_duplicates_count_once(self):
-        d = self.detector([(100, 200, 40, 120, 0, 0.90), (102, 203, 40, 118, 0, 0.60)])
-        self.assertEqual(len(d.detect(np.zeros((360, 640, 3), np.uint8))), 1)
-
-    def test_people_cut_by_a_tile_edge_are_ignored(self):
-        d = self.detector([(10, 300, 40, 120, 0, 0.9)])                 # touches the left edge
-        piece = np.zeros((640, 640, 3), np.uint8)
-        self.assertEqual(len(d._run(piece, cut=(False,) * 4)[0]), 1)    # real picture edge: keep
-        self.assertEqual(len(d._run(piece, cut=(True, False, False, False))[0]), 0)  # a cut: drop
-
-    def test_wide_frame_is_scanned_in_overlapping_tiles(self):
-        self.assertEqual(camera_agent.YoloDetector._starts(1280, 640, 480), [0, 480, 640])
-        self.assertEqual(camera_agent.YoloDetector._starts(720, 640, 480), [0, 80])
-        self.assertEqual(camera_agent.YoloDetector._starts(500, 640, 480), [0])
-        d = self.detector([], tile=True)
-        runs = []
-        orig = d._run
-        d._run = lambda *a, **k: runs.append(1) or orig(*a, **k)
-        d.detect(np.zeros((720, 1280, 3), np.uint8))
-        self.assertEqual(len(runs), 1 + 3 * 2)                          # whole frame + 3x2 tiles
-
-    def test_make_detector_and_config(self):
-        with mock.patch.object(cv2.dnn, "readNetFromONNX", lambda path: FakeNet([])), \
-             mock.patch.object(camera_agent.YoloDetector, "_find_model", staticmethod(lambda m: m)):
-            d = camera_agent.make_detector("yolo", confidence=0.4, tile=False)
-        self.assertEqual((d.kind, d.confidence, d.tile), ("yolo", 0.4, False))
-        folder = tempfile.TemporaryDirectory()
-        self.addCleanup(folder.cleanup)
-        (Path(folder.name) / "302.json").write_text(json.dumps(
-            {"source": "rtsp://x", "detector": "yolo", "confidence": 0.25, "model": "yolo11n.onnx"}))
-        cam = load_cameras(folder.name)[0]
-        self.assertEqual((cam["max_width"], cam["hold"], cam["options"]),
-                         (1280, 0.0, {"confidence": 0.25, "model": "yolo11n.onnx"}))
-
-    def test_missing_model_file_gives_a_clear_error(self):
-        with self.assertRaises(RuntimeError) as ctx:
-            camera_agent.YoloDetector._find_model("C:/nowhere/custom.onnx")
-        self.assertIn("custom.onnx", str(ctx.exception))

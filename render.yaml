@@ -1,0 +1,20 @@
+# Tells Render how to run the website. Render reads this file when you pick
+# "Blueprint" while creating the service (see DEPLOY.md).
+services:
+  - type: web
+    name: classroom-finder
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements-server.txt
+    # one worker on purpose: the database file and the demo data live in that one process
+    startCommand: gunicorn --workers 1 --threads 4 --bind 0.0.0.0:$PORT "app.server:create_app()"
+    healthCheckPath: /api/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.7
+      - key: CF_API_KEY            # the password the camera program uses; Render makes one for you
+        generateValue: true
+      - key: CF_SIMULATE           # demo data for rooms with no camera; set to 0 to turn it off
+        value: "1"
+      - key: CF_LIVE_ROOMS         # rooms whose counts come from a real camera
+        value: "301"

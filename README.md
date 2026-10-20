@@ -33,9 +33,9 @@ If PowerShell says scripts are disabled, run `Set-ExecutionPolicy -Scope Current
 
 ## What you will see
 
-- **Room 301** uses your laptop webcam. The room is **Free** when the camera counts nobody, and it also shows how many students it spots. It turns **Occupied** only when it counts **more than 7**. To test the Occupied state with fewer people, use `python run.py --simulate --preview --occupied-above 1` (occupied when 2 or more are counted).
+- **Room 301** uses your laptop webcam. Sit in front of it and the room turns Occupied. Leave, and after 2 minutes it turns Free. For a faster demo, use `python run.py --simulate --preview --free-after 10`.
 - **The other 18 rooms** have no camera yet. With `--simulate` they show made-up data, and the website marks them **Demo data**. Without `--simulate` they show **No signal**.
-- The face detector counts faces looking at the camera, so it works for a webcam on a desk. For CCTV use the `yolo` detector (see below).
+- The face detector counts faces looking at the camera, so it works for a webcam on a desk.
 
 ## Camera address for each classroom
 
@@ -51,16 +51,7 @@ The `cameras` folder has one file per classroom: `301.json` is room 301, `302.js
 - `"source": 0` is the laptop webcam (room 301 uses it now). If it picks the wrong camera, try `1`.
 - When you get CCTV access, open that room's file and replace the address, for example `"source": "rtsp://username:password@192.168.1.50:554/stream1"`. Ask the teacher or the IT department for each camera's exact address. Nothing else in the project needs to change.
 - `"source": ""` means the room has no camera yet, so it shows **No signal** (or **Demo data** with `--simulate`).
-- **For a CCTV camera, use `"detector": "yolo"`.** It counts only people, finds people sitting still, and scans the picture in small pieces so students far away are not missed. Example:
-
-```json
-{
-  "source": "rtsp://username:password@192.168.1.50:554/stream1",
-  "detector": "yolo"
-}
-```
-
-  The first run downloads a 36 MB model into the `models` folder (internet needed once). A count takes about 1 to 4 seconds on a laptop; if it is too slow add `"model": "yolo11n.onnx"`. Open `/preview` to check the green boxes. If far-away students are missed, lower `"confidence"` to `0.2`. YOLO counts everyone it sees as a person, so a teacher in the room is counted too.
+- For a CCTV camera that sees people from far away, try `"detector": "person"` and add `"max_width": 960`.
 - More options are explained in `cameras/README.txt`.
 - These files hold camera passwords once you add CCTV addresses, so do not upload or share the folder.
 - Restart the program (`Ctrl+C`, then run it again) after changing a file.
@@ -84,6 +75,10 @@ Edit `rooms.json`. Each room needs an `id`, a `building`, and a `floor`. `name` 
 - **Safety rule:** a dead camera shows "No signal", never "Free".
 - **Limits:** counting faces or bodies can be wrong in crowded rooms or bad lighting. Test with real CCTV footage before trusting it.
 - **Approval:** get the college's permission before using real classroom CCTV.
+
+## Putting it online
+
+See `DEPLOY.md` for the step-by-step guide (free hosting on Render).
 
 ## Extra: phones and other computers
 
